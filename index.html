@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Bhutanese LEGO Tetris</title>
+<link href="https://fonts.googleapis.com/css2?family=Karma:wght@700&display=swap" rel="stylesheet">
+<style>
+    html, body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: url("https://upload.wikimedia.org/wikipedia/commons/3/3a/Grass_texture.jpg") center/cover no-repeat;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        font-family: 'Karma', Arial, sans-serif;
+    }
+    #game-container {
+        display: flex;
+        gap: 20px;
+        align-items: flex-start;
+        padding: 20px;
+        background: url("https://upload.wikimedia.org/wikipedia/commons/f/f1/Bhutanese_decorative_pattern.jpg") repeat;
+        border: 10px solid #a21c1c;
+        box-shadow: 0 0 40px #f4b400;
+        border-radius: 20px;
+    }
+    canvas {
+        display: block;
+        box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        border-radius: 10px;
+        position: relative;
+        z-index: 1;
+    }
+    #sidebar {
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+        font-size: 16px;
+        color: #fff;
+        font-weight: bold;
+        align-items: center;
+        min-width: 140px;
+    }
+    #score {
+        font-size: 28px;
+        color: #f4b400;
+        font-family: 'Karma', Arial, sans-serif;
+        text-shadow: 2px 2px #a21c1c;
+    }
+    #instructions {
+        font-size: 14px;
+        line-height: 1.4;
+        background: rgba(255,255,255,0.95);
+        padding: 10px;
+        border-radius: 5px;
+        border: 2px solid #a21c1c;
+        color: #a21c1c;
+        font-family: 'Karma', Arial, sans-serif;
+    }
+    #bhutan-flag {
+        width: 120px;
+        border-radius: 8px;
+        box-shadow: 0 0 10px #ffd54f;
+        margin-bottom: 8px;
+    }
+    #dragon {
+        width: 80px;
+        margin-bottom: 8px;
+        filter: drop-shadow(0 0 6px #ffd54f);
+    }
+    #greeting {
+        font-size: 18px;
+        color: #ffd54f;
+        font-family: 'Karma', Arial, sans-serif;
+        text-align: center;
+        margin-bottom: 8px;
+        text-shadow: 1px 1px #6a4c93;
+    }
+    #gameover {
+        display: none;
+        position: absolute;
+        left: 50%;
+        top: 40%;
+        transform: translate(-50%, -50%);
+        background: rgba(255,255,255,0.95);
+        color: #a21c1c;
+        font-size: 32px;
+        font-family: 'Karma', Arial, sans-serif;
+        border: 4px solid #f4b400;
+        border-radius: 12px;
+        padding: 24px 40px;
+        z-index: 10;
+        text-align: center;
+        box-shadow: 0 0 30px #f4b400;
+    }
+</style>
+</head>
+<body>
+
+<div id="game-container" style="position:relative;">
+    <canvas id="tetris"></canvas>
+    <div id="gameover">བཀྲ་ཤིས་བདེ་ལེགས། <br> Game Over! <br> Press R to restart.</div>
+    <div id="sidebar">
+        <div id="greeting">བཀྲ་ཤིས་བདེ་ལེགས། <br> Welcome!</div>
+        <img id="bhutan-flag" src="https://upload.wikimedia.org/wikipedia/commons/9/91/Flag_of_Bhutan.svg" alt="Bhutan Flag">
+        <img id="dragon" src="https://upload.wikimedia.org/wikipedia/commons/6/6b/Bhutanese_dragon.svg" alt="Bhutan Dragon">
+        <div id="score">Score: 0</div>
+        <canvas id="next" width="100" height="100"></canvas>
+        <div id="instructions">
+            <strong>Controls:</strong><br>
+            ← Move Left<br>
+            → Move Right<br>
+            ↓ Drop Faster<br>
+            ↑ Rotate Clockwise<br>
+            P Pause / Resume<br>
+            R Reset
+        </div>
+        <div id="touch-controls" style="display:none; margin-top:10px;">
+            <button onclick="playerMove(-1)">←</button>
+            <button onclick="playerRotate()">⟳</button>
+            <button onclick="playerMove(1)">→</button>
+            <br>
+            <button onclick="playerDrop()" style="width:80px;">↓ Drop</button>
+            <br>
+            <button onclick="paused = !paused">Pause</button>
+            <button onclick="arena.forEach(row => row.fill(0)); score=0; playerReset(); updateScore(); hideGameOver();">Reset</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const aspectRatio = 12 / 20;
+const maxHeight = window.innerHeight * 0.95;
+const gameHeight = maxHeight;
+const gameWidth = gameHeight * aspectRatio;
+
+const tetrisCanvas = document.getElementById('tetris');
+tetrisCanvas.width = gameWidth;
+tetrisCanvas.height = gameHeight;
+const tetrisCtx = tetrisCanvas.getContext('2d');
+tetrisCtx.scale(gameWidth / 12, gameHeight / 20);
+
+const nextCanvas = document.getElementById('next');
+const nextCtx = nextCanvas.getContext('2d');
+nextCtx.scale(20, 20);
+
+// Bhutanese-inspired colours (expanded)
+const colors = [
+    null,
+    '#a21c1c', // deep red
+    '#f4b400', // saffron yellow
+    '#1a8e5f', // turquoise green
+    '#005f9e', // lapis blue
+    '#d95f02', // orange
+    '#ffd54f', // golden yellow
+    '#6a4c93', // purple accent
+    '#e67e22', // textile orange
+    '#f7cac9', // textile pink
+    '#b2df8a', // textile green
+    '#ffecb3'  // textile cream
+];
+
+const arena = createMatrix(12, 20);
+let dropCounter = 0;
+let dropInterval = 1000;
+let lastTime = 0;
+let score = 0;
+let paused = false;
+
+function createMatrix(w, h) {
+    const matrix = [];
+    while (h--) matrix.push(new Array(w).fill(0));
+    return matrix;
+}
+
+function createPiece(type) {
+    if (type === 'T') return [[0,1,0],[1,1,1],[0,0,0]];
+    if (type === 'O') return [[2,2],[2,2]];
+    if (type === 'L') return [[0,3,0],[0,3,0],[0,3,3]];
+    if (type === 'J') return [[0,4,0],[0,4,0],[4,4,0]];
+    if (type === 'I') return [[0,5,0,0],[0,5,0,0],[0,5,0,0],[0,5,0,0]];
+    if (type === 'S') return [[0,6,6],[6,6,0],[0,0,0]];
+    if (type === 'Z') return [[7,7,0],[0,7,7],[0,0,0]];
+}
+
+function collide(arena, player) {
+    const [m, o] = [player.matrix, player.pos];
+    for (let y = 0; y < m.length; y++) {
+        for (let x = 0; x < m[y].length; x++) {
+            if (m[y][x] !== 0 &&
+               (arena[y + o.y] && arena[y + o.y][x + o.x]) !== 0) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+function merge(arena, player) {
+    player.matrix.forEach((row, y) => {
+        row.forEach((value, x) => {
+            if (value !== 0) arena[y + player.pos.y][x + player.pos.x] = value;
+        });
+    });
+}
+
+function playerDrop() {
+    player.pos.y++;
+    if (collide(arena, player)) {
+        player.pos.y--;
+        merge(arena, player);
+        playerReset();
+        arenaSweep();
+        updateScore();
+    }
+    dropCounter = 0;
+}
+
+function playerMove(dir) {
+    player.pos.x += dir;
+    if (collide(arena, player)) player.pos.x -= dir;
+}
+
+function playerReset() {
+    player.matrix = nextPiece;
+    player.pos.y = 0;
+    player.pos.x = (arena[0].length / 2 | 0) - (player.matrix[0].length / 2 | 0);
+
+    const pieces = 'TJLOSZI';
+    nextPiece = createPiece(pieces[Math.floor(Math.random() * pieces.length)]);
+    drawNext();
+
+    if (collide(arena, player)) {
+        arena.forEach(row => row.fill(0));
+        score = 0;
+        updateScore();
+        showGameOver();
+    } else {
+        hideGameOver();
+    }
+}
+
+function playerRotate() {
+    const pos = player.pos.x;
+    let offset = 1;
+    rotate(player.matrix, 1);
+    while (collide(arena, player)) {
+        player.pos.x += offset;
+        offset = -(offset + (offset > 0 ? 1 : -1));
+        if (offset > player.matrix[0].length) {
+            rotate(player.matrix, -1);
+            player.pos.x = pos;
+            return;
+        }
+    }
+}
+
+function rotate(matrix, dir) {
+    for (let y = 0; y < matrix.length; y++) {
+        for (let x = 0; x < y; x++) {
+            [matrix[x][y], matrix[y][x]] = [matrix[y][x], matrix[x][y]];
+        }
+    }
+    if (dir > 0) matrix.forEach(row => row.reverse());
+    else matrix.reverse();
+}
+
+function arenaSweep() {
+    let rowCount = 1;
+    for (let y = arena.length - 1; y >= 0; y--) {
+        if (arena[y].every(v => v !== 0)) {
+            arena.splice(y, 1);
+            arena.unshift(new Array(arena[0].length).fill(0));
+            score += rowCount * 10;
+            rowCount *= 2;
+            y++;
+        }
+    }
+}
+
+function drawGrid(ctx) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.setLineDash([0.1, 0.9]);
+    for (let x = 0; x < 12; x++) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, 20);
+        ctx.stroke();
+    }
+    for (let y = 0; y < 20; y++) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(12, y);
+        ctx.stroke();
+    }
+    ctx.setLineDash([]);
+}
+
+function drawMatrix(matrix, offset, ctx) {
+    matrix.forEach((row, y) => {
+        row.forEach((value, x) => {
+            if (value !== 0) {
+                ctx.fillStyle = colors[value];
+                ctx.fillRect(x + offset.x, y + offset.y, 1, 1);
+                ctx.fillStyle = 'rgba(255,255,255,0.3)';
+                ctx.beginPath();
+                ctx.arc(x + offset.x + 0.5, y + offset.y + 0.5, 0.15, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        });
+    });
+}
+
+function drawDragonWatermark(ctx) {
+    const dragon = new Image();
+    dragon.src = "https://upload.wikimedia.org/wikipedia/commons/6/6b/Bhutanese_dragon.svg";
+    dragon.onload = function() {
+        ctx.save();
+        ctx.globalAlpha = 0.08;
+        ctx.drawImage(dragon, 2, 6, 8, 8);
+        ctx.restore();
+    };
+}
+function draw() {
+    tetrisCtx.fillStyle = '#d49a3a'; // Bhutanese orange-gold
+    tetrisCtx.fillRect(0, 0, 12, 20);
+    drawDragonWatermark(tetrisCtx);
+    drawMatrix(arena, {x:0, y:0}, tetrisCtx);
+    drawMatrix(player.matrix, player.pos, tetrisCtx);
+    drawGrid(tetrisCtx);
+}
+
+function drawNext() {
+    nextCtx.fillStyle = '#d49a3a';
+    nextCtx.fillRect(0, 0, nextCanvas.width/20, nextCanvas.height/20);
+    drawMatrix(nextPiece, {x:1, y:1}, nextCtx);
+}
+
+function update(time = 0) {
+    if (!paused) {
+        const deltaTime = time - lastTime;
+        lastTime = time;
+        dropCounter += deltaTime;
+        if (dropCounter > dropInterval) playerDrop();
+        draw();
+    }
+    requestAnimationFrame(update);
+}
+
+function updateScore() {
+    document.getElementById('score').innerText = 'Score: ' + score;
+}
+
+function showGameOver() {
+    document.getElementById('gameover').style.display = 'block';
+}
+function hideGameOver() {
+    document.getElementById('gameover').style.display = 'none';
+}
+
+document.addEventListener('keydown', e => {
+    if (e.keyCode === 37) playerMove(-1);
+    else if (e.keyCode === 39) playerMove(1);
+    else if (e.keyCode === 40) playerDrop();
+    else if (e.keyCode === 38) playerRotate();
+    else if (e.keyCode === 80) paused = !paused; // P pause
+    else if (e.keyCode === 82) { // R reset
+        arena.forEach(row => row.fill(0));
+        score = 0;
+        playerReset();
+        updateScore();
+        hideGameOver();
+    }
+});
+
+const player = { pos: {x:0, y:0}, matrix: null };
+const pieces = 'TJLOSZI';
+let nextPiece = createPiece(pieces[Math.floor(Math.random() * pieces.length)]);
+playerReset();
+updateScore();
+update();
+
+// Touch detection and show controls
+function isTouchDevice() {
+    return ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+}
+if (isTouchDevice()) {
+    document.getElementById('touch-controls').style.display = 'block';
+}
+</script>
+</body>
+</html>
